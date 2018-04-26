@@ -1,0 +1,118 @@
+ARG JAVA_VERSION=8
+
+FROM openjdk:${JAVA_VERSION}-alpine
+
+MAINTAINER Michael Haken michael.haken@outlook.com
+
+ARG CA_REQUEST_FILE="ca.conf"
+ARG DAYS=3650
+ARG C=""
+ARG ST=""
+ARG L=""
+ARG O=""
+ARG OU=""
+ARG CN=""
+
+ENV CA_CERT="/etc/ssl/certs/ca-cert.pem" \
+	CA_KEY="/etc/ssl/private/ca-key.pem" \
+	# This is the default java trust store for ca's
+	CA_TRUST_STORE="${JAVA_HOME}/jre/lib/security/cacerts"
+
+#
+# Create CA cert
+#
+RUN if [ -z "${CA_REQUEST_FILE// }" ]; then echo "CA_REQUEST_FILE arg is required"; exit 1; fi 
+
+COPY "${CA_REQUEST_FILE}" "/tmp"
+
+RUN apk --no-cache add --virtual .builddeps \
+        libressl \
+		pwgen \
+	&& CA_CERT_DIR="${CA_CERT%/*}" \
+	&& CA_KEY_DIR="${CA_KEY%/*}" \
+	&& CA_CONF_FILE="/tmp/${CA_REQUEST_FILE}.replaced" \
+	#
+	# Fill out the distinguished name info
+	#
+	&& DISTINGUISHED_NAME="" \
+	&& NEWLINE=$'\n' \
+	&& TAB=$'\t\t\t\t\t\t' \
+	&& if [ ! -z "${C// }" ]; then DISTINGUISHED_NAME="${DISTINGUISHED_NAME}${NEWLINE}C${TAB}= ${C// }"; fi \
+	&& if [ ! -z "${ST// }" ]; then DISTINGUISHED_NAME="${DISTINGUISHED_NAME}${NEWLINE}ST${TAB}= ${ST// }"; fi \
+	&& if [ ! -z "${L// }" ]; then DISTINGUISHED_NAME="${DISTINGUISHED_NAME}${NEWLINE}L${TAB}= ${L// }"; fi \
+	&& if [ ! -z "${O// }" ]; then DISTINGUISHED_NAME="${DISTINGUISHED_NAME}${NEWLINE}O${TAB}= ${O// }"; fi \
+	&& if [ ! -z "${OU// }" ]; then DISTINGUISHED_NAME="${DISTINGUISHED_NAME}${NEWLINE}OU${TAB}= ${OU// }"; fi \
+	&& if [ -z "${CN// }" ]; then CN="${HOSTNAME}"; fi \
+	&& DISTINGUISHED_NAME="${DISTINGUISHED_NAME}${NEWLINE}CN${TAB}= ${CN// }" \
+	#
+	# Substitute any "variables" in the config file, use [ -n "$line" ] in case the file doesn't
+	# end with a new line (which causes the last line to be ignored by read)
+	#
+	&& while read line || [ -n "$line" ]; do eval echo \"$line\"; done < "/tmp/${CA_REQUEST_FILE}" > "${CA_CONF_FILE}" \
+	# 
+	# Create directories to store key and cert
+	#
+	&& mkdir -p "${CA_CERT_DIR}" \
+	&& mkdir -p "${CA_KEY_DIR}" \
+	#
+	# Allow users to read and execute the directory tree
+	# containing the CA CERT
+	#
+	&& CA_CERT_BASE_DIR=$(echo "${CA_CERT}" | cut -d "/" -f2) \
+	&& chmod -R +X "${CA_CERT_BASE_DIR}" \
+	#
+	# Create the CA private key password
+	# Remove any single or double quotes from password 
+	# to make it easier to store
+	#
+	&& CA_PRIVATE_KEY_PASSWORD=$(pwgen -1 --secure --symbols 128 | sed -e "s/'/-/g; s/\"/_/g") \
+	#
+	# changeit is the default password java gives
+	#
+	&& CA_TRUST_STORE_PASSWORD="changeit" \
+	#
+	# Make the current CA variables available to new users 
+	#
+	&& echo "export CA_CERT=${CA_CERT}" > /etc/profile.d/ca.sh \
+	&& echo "export CA_KEY=${CA_KEY}" >> /etc/profile.d/ca.sh \
+	&& echo "export CA_TRUST_STORE=${CA_TRUST_STORE}" >> /etc/profile.d/ca.sh \
+	&& echo "export CA_TRUST_STORE_PASSWORD=${CA_TRUST_STORE_PASSWORD}" >> /etc/profile.d/ca.sh \
+	#
+	# Make the current CA variables always available to root via environment variables
+	#
+	&& echo "export CA_CERT=${CA_CERT}" >> /root/.bashrc \
+	&& echo "export CA_CERT=${CA_CERT}" >> /root/.profile \
+	&& echo "export CA_KEY=${CA_KEY}" >> /root/.bashrc \
+	&& echo "export CA_KEY=${CA_KEY}" >> /root/.profile \
+	&& echo "export CA_TRUST_STORE=${CA_TRUST_STORE}" >> /root/.bashrc \
+	&& echo "export CA_TRUST_STORE=${CA_TRUST_STORE}" >> /root/.profile \
+	&& echo "export CA_PRIVATE_KEY_PASSWORD='${CA_PRIVATE_KEY_PASSWORD}'" >> /root/.bashrc \
+	&& echo "export CA_PRIVATE_KEY_PASSWORD='${CA_PRIVATE_KEY_PASSWORD}'" >> /root/.profile \
+	&& echo "export CA_TRUST_STORE_PASSWORD='${CA_TRUST_STORE_PASSWORD}'" >> /root/.bashrc \
+	&& echo "export CA_TRUST_STORE_PASSWORD='${CA_TRUST_STORE_PASSWORD}'" >> /root/.profile \
+	&& source /root/.profile \
+	#
+	# Create the CA private key
+	#
+	&& echo "CA Private Key File Password: ${CA_PRIVATE_KEY_PASSWORD}" \
+	&& openssl genrsa -aes256  -out "${CA_KEY}" -passout "pass:${CA_PRIVATE_KEY_PASSWORD}" 4096 \
+	&& chmod 0400 "${CA_KEY}" \
+	#
+	# Create new CA certificate using that key
+	#
+	&& openssl req -x509 -new -days "${DAYS}" -passin "pass:${CA_PRIVATE_KEY_PASSWORD}" -config "${CA_CONF_FILE}" \
+		-key "${CA_KEY}" -out "${CA_CERT}" \
+	&& chmod 0444 "${CA_CERT}" \
+	&& openssl x509 -noout -text -in "${CA_CERT}" \
+	#
+	# Delete the request files
+	#
+	&& rm -f "${CA_CONF_FILE}" "/tmp/${CA_REQUEST_FILE}" \
+	#
+	# Java keytool utility
+	#
+	&& keytool -noprompt -importcert -alias localhost -file "${CA_CERT}" -keystore "${CA_TRUST_STORE}" -storepass "${CA_TRUST_STORE_PASSWORD}" \
+	#
+	# Cleanup
+	#
+	&& apk del .builddeps
