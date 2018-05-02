@@ -23,7 +23,7 @@ Param(
 
 	[Parameter()]
 	[ValidateNotNullOrEmpty()]
-	[System.String]$Version = "1.0.0"
+	[System.String]$Version = "1.0.1"
 )
 
 $Conf = @()
@@ -63,7 +63,7 @@ if (-not [System.String]::IsNullOrEmpty($CN))
 	$Conf += "CN=$CN"
 }
 
-$Args = @("build", "../ca-debian", "-t", "bamcis/ca-debian:$Version")
+$Args = @("build", "../ca-debian", "-t", "bamcis/ca-debian:$Version", "-t", "bamcis/ca-debian:latest")
 
 foreach ($Item in $Conf)
 {

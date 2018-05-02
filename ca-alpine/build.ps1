@@ -63,7 +63,7 @@ if (-not [System.String]::IsNullOrEmpty($CN))
 	$Conf += "CN=$CN"
 }
 
-$Args = @("build", "../ca-alpine", "-t", "bamcis/ca-alpine:$Version")
+$Args = @("build", "../ca-alpine", "-t", "bamcis/ca-alpine:$Version", "-t", "bamcis/ca-alpine:latest")
 
 foreach ($Item in $Conf)
 {

@@ -30,7 +30,7 @@ COPY "${CA_REQUEST_FILE}" "/tmp"
 RUN DEBIAN_FRONTEND="noninteractive" \
 	&& apt-get update \
 	&& apt-get -y upgrade \
-	&& apt-get --assume-yes install openssl pwgen \
+	&& apt-get --assume-yes install pwgen \
 	&& CA_CERT_DIR="${CA_CERT%/*}" \
 	&& CA_KEY_DIR="${CA_KEY%/*}" \
 	&& CA_CONF_FILE="/tmp/${CA_REQUEST_FILE}.replaced" \
@@ -118,7 +118,7 @@ RUN DEBIAN_FRONTEND="noninteractive" \
 	#
 	# Remove unneeded apt packages
 	#
-	&& apt-get remove --purge -y openssl pwgen \
+	&& apt-get remove --purge -y pwgen \
 	&& apt-get autoclean -y \
 	&& apt-get autoremove -y \
 	&& apt-get clean -y \
